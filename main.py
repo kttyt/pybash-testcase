@@ -10,14 +10,12 @@ DELAY = 5
 IMAGE_NAME = 'web'
 LOCAL_REPO_PATH = 'src'
 REMOTE_REPOSITORY = 'git@github.com:kttyt/temp-test-project.git'
+SSH_KEY_PATH = './test.rsa'
 
 
 def signal_handler(sig, frame):
     print('You pressed Ctrl+C!')
     sys.exit(0)
-
-
-signal.signal(signal.SIGINT, signal_handler)
 
 
 def init_all_branches(repo):
@@ -43,9 +41,9 @@ def init_all_branches(repo):
 def init_repo_state(repo):
     return {
         branch: {
-                'last_hash': branch.commit.hexsha,
-                'commited_date': branch.commit.committed_date,
-                'author': str(repo.head.commit.author)
+            'last_hash': branch.commit.hexsha,
+            'commited_date': branch.commit.committed_date,
+            'author': str(repo.head.commit.author)
         }
         for branch in repo.heads
     }
@@ -104,43 +102,48 @@ def stop_running_containers(client):
     return tag
 
 
-if not os.path.exists(LOCAL_REPO_PATH):
-    os.mkdir(LOCAL_REPO_PATH)
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)  # Handling pressing 'Ctrl + C'
 
-with Git().custom_environment(GIT_SSH_COMMAND='ssh -i ./test.rsa'):
-    try:
-        repo = Repo(path=LOCAL_REPO_PATH)
-    except InvalidGitRepositoryError:
-        repo = Repo.clone_from(REMOTE_REPOSITORY, LOCAL_REPO_PATH)
+    if not os.path.exists(LOCAL_REPO_PATH):
+        os.mkdir(LOCAL_REPO_PATH)
 
-state = None
+    with Git().custom_environment(GIT_SSH_COMMAND=f'ssh -i {SSH_KEY_PATH}'):
+        try:
+            repo = Repo(path=LOCAL_REPO_PATH)
+        except InvalidGitRepositoryError:
+            repo = Repo.clone_from(REMOTE_REPOSITORY, LOCAL_REPO_PATH)
 
-while True:
-    print('New interact')
-    sleep(DELAY)
-    repo.remote('origin').pull()
+    state = None
 
-    if init_all_branches(repo):
-        print('New branches are detected')
-        continue
+    while True:
+        print('New interact')
+        sleep(DELAY)
+        repo.remote('origin').pull()
 
-    state = state if state else init_repo_state(repo)
-    print(f"state {state}")
-    updated_commits = get_updated_commits(repo, state)
-    if updated_commits:
-        print('New commits are detected')
-        last_commit = max(updated_commits, key=lambda x: x['commited_date'])
-        repo.heads[last_commit['branch']].checkout()
-        print(f"Checkout to {last_commit['branch']}")
+        if init_all_branches(repo):
+            print('New branches are initialized')
+            continue
 
-        client = docker.client.from_env()
-        tag = create_docker_image(client, last_commit)
-        print(f'Create docker image with tag: {tag}')
+        state = state if state else init_repo_state(repo)
+        print(f"state {state}")
+        updated_commits = get_updated_commits(repo, state)
+        if updated_commits:
+            print('New commits are detected')
+            last_commit = max(updated_commits, key=lambda x: x['commited_date'])
+            repo.heads[last_commit['branch']].checkout()
+            print(f"Checkout to {last_commit['branch']}")
 
-        previous_tag = stop_running_containers(client)
+            client = docker.client.from_env()
+            tag = create_docker_image(client, last_commit)
+            print(f'Create docker image with tag: {tag}')
 
-        print(f'Running new container')
-        isRunning = run_container(client, tag)
+            previous_tag = stop_running_containers(client)
+            if previous_tag:
+                print(f"Old container with tag '{previous_tag} has stopped'")
 
-        if not isRunning and previous_tag:
-            run_container(client, previous_tag)
+            print(f'Running new container')
+            isRunning = run_container(client, tag)
+
+            if not isRunning and previous_tag:
+                run_container(client, previous_tag)
