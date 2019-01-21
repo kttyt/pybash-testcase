@@ -10,12 +10,20 @@ DELAY = 5
 IMAGE_NAME = 'web'
 LOCAL_REPO_PATH = 'src'
 REMOTE_REPOSITORY = 'git@github.com:kttyt/temp-test-project.git'
-SSH_KEY_PATH = './test.rsa'
+SSH_KEY_PATH = '~/.ssh/test_rsa'
+LOG_FILE = 'app.log'
+INNER_LOG_FILE = 'app.log.txt'
 
 
 def signal_handler(sig, frame):
     print('You pressed Ctrl+C!')
     sys.exit(0)
+
+
+def touch(path):
+    if not os.path.isfile(LOG_FILE):
+        with open(path, 'a'):
+            os.utime(path, None)
 
 
 def init_all_branches(repo):
@@ -79,7 +87,34 @@ def create_docker_image(client, last_commit):
 
 
 def run_container(client, tag):
-    container = client.containers.run(tag, auto_remove=True, detach=True, ports={'80': '80'}, name='test')
+    touch(LOG_FILE)
+    if os.path.isabs(LOG_FILE):
+        log_file_path = LOG_FILE
+    else:
+        log_file_path = os.path.join(os.getcwd(), LOG_FILE)
+
+    if os.path.isabs(INNER_LOG_FILE):
+        inner_log_file_path = INNER_LOG_FILE
+    else:
+        inner_log_file_path = os.path.join('/tmp', INNER_LOG_FILE)
+
+    print(log_file_path)
+    print(inner_log_file_path)
+
+    container = client.containers.run(
+        tag,
+        command=inner_log_file_path,
+        auto_remove=True,
+        detach=True,
+        ports={'80': '80'},
+        volumes={
+            log_file_path: {
+                'bind': inner_log_file_path, 'mode': 'rw'
+            }
+        },
+        name='test'
+    )
+
     for _ in range(0, 10):
         sleep(5)
         try:
