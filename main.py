@@ -51,7 +51,7 @@ def init_repo_state(repo):
         branch: {
             'last_hash': branch.commit.hexsha,
             'commited_date': branch.commit.committed_date,
-            'author': str(repo.head.commit.author)
+            'author': str(branch.commit.author)
         }
         for branch in repo.heads
     }
@@ -66,12 +66,11 @@ def get_updated_commits(repo, state):
             entry = {
                 'last_hash': hash,
                 'commited_date': commited_date,
-                'author': str(repo.head.commit.author),
+                'author': str(branch.commit.author),
                 'branch': str(branch)
             }
             state[branch] = entry
             updates.append(entry)
-    print(updates)
     return updates
 
 
