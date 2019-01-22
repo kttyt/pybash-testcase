@@ -3,7 +3,7 @@ import signal
 import sys
 import docker
 import docker.errors
-from git import Git, Repo, InvalidGitRepositoryError
+from git import Repo, InvalidGitRepositoryError
 from time import sleep
 
 DELAY = 5
@@ -12,7 +12,7 @@ LOCAL_REPO_PATH = 'src'
 REMOTE_REPOSITORY = 'git@github.com:kttyt/temp-test-project.git'
 SSH_KEY_PATH = '~/.ssh/test_rsa'
 LOG_FILE = 'app.log'
-INNER_LOG_FILE = 'app.log.txt'
+INNER_LOG_FILE = 'app.log'
 
 
 def signal_handler(sig, frame):
@@ -26,61 +26,34 @@ def touch(path):
             os.utime(path, None)
 
 
-def init_all_branches(repo):
-    output = repo.git.branch('-r')
-    local_branches = [head.name for head in repo.heads]
-    remote_branches = [
-        line.lstrip().replace('origin/', '')
-        for line in output.split('\n')
-        if ' -> ' not in line
-    ]
-
-    difference = list(set(remote_branches) - set(local_branches))
-    if not difference:
-        return False
-
-    origin = repo.remote('origin')
-    for branch in difference:
-        repo.create_head(branch, origin.refs[branch])
-        repo.git.branch(f'--set-upstream-to=origin/{str(branch)}', branch)
-    return True
-
-
-def init_repo_state(repo):
-    return {
-        branch: {
-            'last_hash': branch.commit.hexsha,
-            'commited_date': branch.commit.committed_date,
-            'author': str(branch.commit.author)
-        }
-        for branch in repo.heads
-    }
-
-
-def get_updated_commits(repo, state):
+def get_updated_commits(fetch_info, state):
     updates = []
-    for branch in repo.heads:
-        hash = branch.commit.hexsha
-        commited_date = branch.commit.committed_date
+    isEmptyState = True if not state else False
+    for info in fetch_info:
+        hash = info.commit.hexsha
+        commited_date = info.commit.committed_date
+        branch = str(info.ref).replace('origin/', '')
         if branch not in state or state[branch]['last_hash'] != hash:
             entry = {
                 'last_hash': hash,
-                'commited_date': commited_date,
-                'author': str(branch.commit.author),
+                'committed_date': commited_date,
                 'branch': str(branch)
             }
             state[branch] = entry
+            if isEmptyState:
+                continue
+
             updates.append(entry)
     return updates
 
 
-def create_docker_image(client, last_commit):
+def create_docker_image(client, author, hexsha, branch):
     labels = {
-        'author': last_commit['author'],
-        'commit': last_commit['last_hash'],
-        'branch': last_commit['branch']
+        'author': str(author),
+        'commit': str(hexsha),
+        'branch': str(branch)
     }
-    tag = f"{IMAGE_NAME}:{last_commit['last_hash'][:7]}"
+    tag = f"{IMAGE_NAME}:{hexsha[:7]}"
     client.images.build(path='.', tag=tag, labels=labels)
     return tag
 
@@ -96,9 +69,6 @@ def run_container(client, tag):
         inner_log_file_path = INNER_LOG_FILE
     else:
         inner_log_file_path = os.path.join('/tmp', INNER_LOG_FILE)
-
-    print(log_file_path)
-    print(inner_log_file_path)
 
     container = client.containers.run(
         tag,
@@ -142,34 +112,37 @@ if __name__ == '__main__':
     if not os.path.exists(LOCAL_REPO_PATH):
         os.mkdir(LOCAL_REPO_PATH)
 
-    with Git().custom_environment(GIT_SSH_COMMAND=f'ssh -i {SSH_KEY_PATH}'):
-        try:
-            repo = Repo(path=LOCAL_REPO_PATH)
-        except InvalidGitRepositoryError:
-            repo = Repo.clone_from(REMOTE_REPOSITORY, LOCAL_REPO_PATH)
+    try:
+        repo = Repo(path=LOCAL_REPO_PATH)
+        repo.git.update_environment(GIT_SSH_COMMAND=f'ssh -i {SSH_KEY_PATH}')
+    except InvalidGitRepositoryError:
+        repo = Repo.clone_from(REMOTE_REPOSITORY, LOCAL_REPO_PATH, env={'GIT_SSH_COMMAND': f'ssh -i {SSH_KEY_PATH}'})
 
-    state = None
+    state = {}
 
     while True:
         print('New interact')
-        sleep(DELAY)
-        repo.remote('origin').pull()
+        fetch_info = repo.remote('origin').fetch()
+        updated_commits = get_updated_commits(fetch_info, state)
 
-        if init_all_branches(repo):
-            print('New branches are initialized')
-            continue
-
-        state = state if state else init_repo_state(repo)
-        print(f"state {state}")
-        updated_commits = get_updated_commits(repo, state)
         if updated_commits:
             print('New commits are detected')
-            last_commit = max(updated_commits, key=lambda x: x['commited_date'])
-            repo.heads[last_commit['branch']].checkout()
-            print(f"Checkout to {last_commit['branch']}")
+            last_commit = max(updated_commits, key=lambda x: x['committed_date'])
+            branch = last_commit['branch']
+
+            repo.git.checkout(branch)
+            print(f"Checkout to {branch}")
+
+            repo.git.merge(f'origin/{branch}')
+            print(f'Merge {branch} with origin')
 
             client = docker.client.from_env()
-            tag = create_docker_image(client, last_commit)
+            tag = create_docker_image(
+                client,
+                branch=branch,
+                author=repo.head.commit.author,
+                hexsha=repo.head.commit.hexsha
+            )
             print(f'Create docker image with tag: {tag}')
 
             previous_tag = stop_running_containers(client)
@@ -181,3 +154,4 @@ if __name__ == '__main__':
 
             if not isRunning and previous_tag:
                 run_container(client, previous_tag)
+        sleep(DELAY)
