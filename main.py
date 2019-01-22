@@ -50,7 +50,7 @@ def get_updated_commits(fetch_info, state):
 
 def create_docker_image(client, author, hexsha, branch):
     labels = {
-        'author': str(author),
+        'maintainer': str(author),
         'commit': str(hexsha),
         'branch': str(branch)
     }
