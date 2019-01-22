@@ -11,11 +11,15 @@ DELAY = 5
 IMAGE_NAME = 'web'
 LOCAL_REPO_PATH = 'src'
 REMOTE_REPOSITORY = 'git@github.com:kontur-exploitation/testcase-pybash.git'
+# access key path to github.com
 SSH_KEY_PATH = '~/.ssh/test_rsa'
+# local log file filename
 LOG_FILE = 'app.log'
+# log file file name into image
 INNER_LOG_FILE = 'app.log'
 
 
+# Handling system signals
 def signal_handler(sig, frame):
     print('You pressed Ctrl+C!')
     sys.exit(0)
@@ -33,7 +37,7 @@ def get_updated_commits(fetch_info, state):
     for info in fetch_info:
         hash = info.commit.hexsha
         commited_date = info.commit.committed_date
-        branch = str(info.ref).replace('origin/', '')
+        branch = str(info.ref).replace('origin/', '') # getting branch name from reference
         if branch not in state or state[branch]['last_hash'] != hash:
             entry = {
                 'last_hash': hash,
@@ -60,6 +64,7 @@ def create_docker_image(client, author, hexsha, branch):
 
 
 def run_container(client, tag):
+    # Creating log file and giving him absolute path to mounting as a file
     touch(LOG_FILE)
     if os.path.isabs(LOG_FILE):
         log_file_path = LOG_FILE
@@ -73,7 +78,7 @@ def run_container(client, tag):
 
     container = client.containers.run(
         tag,
-        command=inner_log_file_path,
+        command=inner_log_file_path,  # pass log file name as a argument to entrypoint.sh script
         auto_remove=True,
         detach=True,
         ports={'80': '80'},
@@ -85,6 +90,7 @@ def run_container(client, tag):
         name='test'
     )
 
+    # Checking for container is running
     for _ in range(0, 10):
         sleep(5)
         try:
