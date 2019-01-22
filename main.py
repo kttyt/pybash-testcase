@@ -1,10 +1,11 @@
 import os
 import signal
 import sys
+from time import sleep
+
 import docker
 import docker.errors
 from git import Repo, InvalidGitRepositoryError
-from time import sleep
 
 DELAY = 5
 IMAGE_NAME = 'web'
