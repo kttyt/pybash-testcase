@@ -9,7 +9,7 @@ from time import sleep
 DELAY = 5
 IMAGE_NAME = 'web'
 LOCAL_REPO_PATH = 'src'
-REMOTE_REPOSITORY = 'git@github.com:kttyt/temp-test-project.git'
+REMOTE_REPOSITORY = 'git@github.com:kontur-exploitation/testcase-pybash.git'
 SSH_KEY_PATH = '~/.ssh/test_rsa'
 LOG_FILE = 'app.log'
 INNER_LOG_FILE = 'app.log'
